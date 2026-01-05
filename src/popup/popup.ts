@@ -1,4 +1,16 @@
 import "./popup.css";
+import {
+  createBookmarksColumn,
+  createBookmarksState,
+  loadBookmarks,
+  setupBookmarkListeners
+} from "./bookmarks";
+import {
+  createNavigationState,
+  setActiveFromElement,
+  setupKeyboardNavigation,
+  syncActiveAfterRender
+} from "./navigation";
 type Tab = chrome.tabs.Tab;
 
 const grid = document.querySelector<HTMLDivElement>("#grid")!;
@@ -6,8 +18,8 @@ const q = document.querySelector<HTMLInputElement>("#q")!;
 
 let allTabs: Tab[] = [];
 let allGroups: chrome.tabGroups.TabGroup[] = [];
-let activePos: { col: number; row: number } | null = null;
-let activeButton: HTMLButtonElement | null = null;
+const bookmarksState = createBookmarksState();
+const navigationState = createNavigationState();
 
 function render(tabs: Tab[]) {
   grid.innerHTML = "";
@@ -28,12 +40,12 @@ function render(tabs: Tab[]) {
   const groupsSection = document.createElement("section");
   groupsSection.className = "groups";
 
+  const bookmarksColumn = createBookmarksColumn(bookmarksState, formatUrl, () => render(allTabs));
+  if (bookmarksColumn) groupsSection.appendChild(bookmarksColumn);
+
   for (const group of allGroups) {
     const list = groupedTabs.get(group.id);
     if (!list || list.length === 0) continue;
-
-    const column = document.createElement("div");
-    column.className = "group-column";
 
     const header = document.createElement("div");
     header.className = "group-title";
@@ -43,34 +55,52 @@ function render(tabs: Tab[]) {
     header.style.backgroundColor = groupColor;
     header.style.color = "#fff";
 
-    column.appendChild(header);
-    for (const tab of list) {
-      column.appendChild(createTabItem(tab));
+    const chunks = chunkTabs(list, 12);
+    const groupBlock = document.createElement("div");
+    groupBlock.className = "group-block";
+    groupBlock.style.setProperty("--cols", String(chunks.length));
+    groupBlock.appendChild(header);
+
+    for (const chunk of chunks) {
+      const column = document.createElement("div");
+      column.className = "group-column";
+      for (const tab of chunk) {
+        column.appendChild(createTabItem(tab));
+      }
+      groupBlock.appendChild(column);
     }
-    groupsSection.appendChild(column);
+
+    groupsSection.appendChild(groupBlock);
   }
 
   if (ungroupedTabs.length > 0) {
-    const column = document.createElement("div");
-    column.className = "group-column ungrouped-column";
-
     const header = document.createElement("div");
     header.className = "group-title";
     header.textContent = "Без группы";
 
-    column.appendChild(header);
-    for (const tab of ungroupedTabs) {
-      column.appendChild(createTabItem(tab));
+    const chunks = chunkTabs(ungroupedTabs, 12);
+    const groupBlock = document.createElement("div");
+    groupBlock.className = "group-block ungrouped-block";
+    groupBlock.style.setProperty("--cols", String(chunks.length));
+    groupBlock.appendChild(header);
+
+    for (const chunk of chunks) {
+      const column = document.createElement("div");
+      column.className = "group-column";
+      for (const tab of chunk) {
+        column.appendChild(createTabItem(tab));
+      }
+      groupBlock.appendChild(column);
     }
 
-    groupsSection.appendChild(column);
+    groupsSection.appendChild(groupBlock);
   }
 
   if (groupsSection.childElementCount > 0) {
     grid.appendChild(groupsSection);
   }
 
-  syncActiveAfterRender();
+  syncActiveAfterRender(navigationState, grid);
 }
 
 function createTabItem(tab: Tab) {
@@ -120,7 +150,7 @@ function createTabItem(tab: Tab) {
   item.append(titleRow, urlEl);
 
   item.addEventListener("click", async () => {
-    setActiveFromElement(item);
+    setActiveFromElement(navigationState, grid, item);
     if (tab.id != null) await chrome.tabs.update(tab.id, { active: true });
     if (tab.windowId != null) await chrome.windows.update(tab.windowId, { focused: true });
     await closeCurrentTab();
@@ -129,97 +159,12 @@ function createTabItem(tab: Tab) {
   return item;
 }
 
-function syncActiveAfterRender() {
-  const columns = getColumns();
-  if (columns.length === 0) {
-    activePos = null;
-    if (activeButton) activeButton.classList.remove("is-active");
-    activeButton = null;
-    return;
+function chunkTabs<T>(items: T[], size: number) {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
   }
-
-  setActive(0, 0);
-}
-
-function getColumns() {
-  const columns: HTMLButtonElement[][] = [];
-  const columnEls = grid.querySelectorAll<HTMLElement>(".group-column");
-  for (const columnEl of columnEls) {
-    const items = Array.from(columnEl.querySelectorAll<HTMLButtonElement>(".item"));
-    if (items.length > 0) columns.push(items);
-  }
-  return columns;
-}
-
-function setActiveFromElement(item: HTMLButtonElement) {
-  const columns = getColumns();
-  for (let c = 0; c < columns.length; c++) {
-    const r = columns[c].indexOf(item);
-    if (r >= 0) {
-      setActive(c, r);
-      return;
-    }
-  }
-}
-
-function setActive(col: number, row: number) {
-  const columns = getColumns();
-  if (columns.length === 0) return;
-  const safeCol = Math.max(0, Math.min(col, columns.length - 1));
-  const safeRow = Math.max(0, Math.min(row, columns[safeCol].length - 1));
-  const next = columns[safeCol][safeRow];
-
-  if (activeButton) activeButton.classList.remove("is-active");
-  activeButton = next;
-  activePos = { col: safeCol, row: safeRow };
-  activeButton.classList.add("is-active");
-  activeButton.scrollIntoView({ block: "nearest", inline: "nearest" });
-}
-
-function moveActive(deltaCol: number, deltaRow: number) {
-  const columns = getColumns();
-  if (columns.length === 0) return;
-  if (!activePos) return setActive(0, 0);
-
-  const targetCol = Math.max(0, Math.min(activePos.col + deltaCol, columns.length - 1));
-  const targetRow = Math.max(0, Math.min(activePos.row + deltaRow, columns[targetCol].length - 1));
-  setActive(targetCol, targetRow);
-}
-
-function setupKeyboardNavigation() {
-  document.addEventListener("keydown", (event) => {
-    const target = event.target as HTMLElement | null;
-    const inInput = !!target && (target.closest("input, textarea") || target.isContentEditable);
-
-    if (inInput) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        q.blur();
-        if (!activePos) setActive(0, 0);
-      }
-      return;
-    }
-
-    if (event.key === "ArrowUp") {
-      event.preventDefault();
-      moveActive(0, -1);
-    } else if (event.key === "ArrowDown") {
-      event.preventDefault();
-      moveActive(0, 1);
-    } else if (event.key === "ArrowLeft") {
-      event.preventDefault();
-      moveActive(-1, 0);
-    } else if (event.key === "ArrowRight") {
-      event.preventDefault();
-      moveActive(1, 0);
-    } else if (event.key === "Enter") {
-      event.preventDefault();
-      activeButton?.click();
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      focusSearch();
-    }
-  });
+  return chunks;
 }
 
 async function closeCurrentTab() {
@@ -267,6 +212,7 @@ async function loadTabs() {
   // только текущее окно (обычно удобнее)
   allTabs = await chrome.tabs.query({ currentWindow: true });
   allGroups = await chrome.tabGroups.query({ windowId: chrome.windows.WINDOW_ID_CURRENT });
+  await loadBookmarks(bookmarksState);
   render(allTabs);
 }
 
@@ -291,6 +237,7 @@ function setupReactiveListeners() {
   chrome.tabGroups.onUpdated.addListener(scheduleRefresh);
   chrome.tabGroups.onRemoved.addListener(scheduleRefresh);
   chrome.tabGroups.onMoved.addListener(scheduleRefresh);
+  setupBookmarkListeners(scheduleRefresh);
 }
 
 function focusSearch() {
@@ -342,7 +289,7 @@ loadTabs()
   .catch(console.error);
 setupReactiveListeners();
 setupFocusShortcuts();
-setupKeyboardNavigation();
+setupKeyboardNavigation(navigationState, grid, q, focusSearch);
 
 window.addEventListener("focus", focusSearch);
 document.addEventListener("visibilitychange", () => {

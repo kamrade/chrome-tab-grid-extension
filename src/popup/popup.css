@@ -44,13 +44,19 @@ header {
 
 .groups {
   padding: 4px;
-  display: grid;
+  display: flex;
   gap: var(--gap);
-  grid-auto-flow: column;
-  grid-auto-columns: 300px;
   align-items: start;
   overflow-x: auto;
   padding-bottom: 10px;
+}
+
+.group-block {
+  display: grid;
+  grid-template-columns: repeat(var(--cols), 300px);
+  gap: var(--gap);
+  align-items: start;
+  flex: 0 0 auto;
 }
 
 .group-column {
@@ -60,6 +66,7 @@ header {
 }
 
 .group-title {
+  grid-column: 1 / -1;
   font-size: 12px;
   font-weight: 600;
   text-transform: uppercase;
@@ -88,6 +95,31 @@ header {
 .item.is-active {
   outline: 2px solid #1a73e8;
   outline-offset: 2px;
+}
+
+.bookmark-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  padding-left: calc(10px + (var(--indent) * 14px));
+}
+
+.bookmark-caret {
+  width: 12px;
+  text-align: center;
+  opacity: 0.7;
+}
+
+.bookmark-item:not(.is-folder) .bookmark-caret {
+  opacity: 0;
+}
+
+.bookmark-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .title-row {
@@ -134,7 +166,7 @@ header {
 
 .title {
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 400;
   line-height: 1.2;
   margin-bottom: 6px;
   min-width: 0;
