@@ -106,9 +106,21 @@ function createTabItem(tab: Tab) {
   item.addEventListener("click", async () => {
     if (tab.id != null) await chrome.tabs.update(tab.id, { active: true });
     if (tab.windowId != null) await chrome.windows.update(tab.windowId, { focused: true });
+    await closeCurrentTab();
   });
 
   return item;
+}
+
+async function closeCurrentTab() {
+  try {
+    const current = await chrome.tabs.getCurrent();
+    if (current?.id != null) {
+      await chrome.tabs.remove(current.id);
+    }
+  } catch (err) {
+    console.error(err);
+  }
 }
 
 function formatUrl(raw: string) {
