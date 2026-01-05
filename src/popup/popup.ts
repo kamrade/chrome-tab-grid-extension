@@ -6,6 +6,8 @@ const q = document.querySelector<HTMLInputElement>("#q")!;
 
 let allTabs: Tab[] = [];
 let allGroups: chrome.tabGroups.TabGroup[] = [];
+let activePos: { col: number; row: number } | null = null;
+let activeButton: HTMLButtonElement | null = null;
 
 function render(tabs: Tab[]) {
   grid.innerHTML = "";
@@ -48,10 +50,6 @@ function render(tabs: Tab[]) {
     groupsSection.appendChild(column);
   }
 
-  if (groupsSection.childElementCount > 0) {
-    grid.appendChild(groupsSection);
-  }
-
   if (ungroupedTabs.length > 0) {
     const column = document.createElement("div");
     column.className = "group-column ungrouped-column";
@@ -67,6 +65,12 @@ function render(tabs: Tab[]) {
 
     groupsSection.appendChild(column);
   }
+
+  if (groupsSection.childElementCount > 0) {
+    grid.appendChild(groupsSection);
+  }
+
+  syncActiveAfterRender();
 }
 
 function createTabItem(tab: Tab) {
@@ -96,20 +100,126 @@ function createTabItem(tab: Tab) {
   titleEl.className = "title";
   titleEl.textContent = title;
 
+  const closeBtn = document.createElement("button");
+  closeBtn.className = "close-tab";
+  closeBtn.type = "button";
+  closeBtn.title = "Close tab";
+  closeBtn.textContent = "×";
+  closeBtn.addEventListener("click", async (event) => {
+    event.stopPropagation();
+    if (tab.id != null) {
+      await chrome.tabs.remove(tab.id);
+    }
+  });
+
   const urlEl = document.createElement("div");
   urlEl.className = "url";
   urlEl.textContent = displayUrl;
 
-  titleRow.append(favicon, titleEl);
+  titleRow.append(favicon, titleEl, closeBtn);
   item.append(titleRow, urlEl);
 
   item.addEventListener("click", async () => {
+    setActiveFromElement(item);
     if (tab.id != null) await chrome.tabs.update(tab.id, { active: true });
     if (tab.windowId != null) await chrome.windows.update(tab.windowId, { focused: true });
     await closeCurrentTab();
   });
 
   return item;
+}
+
+function syncActiveAfterRender() {
+  const columns = getColumns();
+  if (columns.length === 0) {
+    activePos = null;
+    if (activeButton) activeButton.classList.remove("is-active");
+    activeButton = null;
+    return;
+  }
+
+  setActive(0, 0);
+}
+
+function getColumns() {
+  const columns: HTMLButtonElement[][] = [];
+  const columnEls = grid.querySelectorAll<HTMLElement>(".group-column");
+  for (const columnEl of columnEls) {
+    const items = Array.from(columnEl.querySelectorAll<HTMLButtonElement>(".item"));
+    if (items.length > 0) columns.push(items);
+  }
+  return columns;
+}
+
+function setActiveFromElement(item: HTMLButtonElement) {
+  const columns = getColumns();
+  for (let c = 0; c < columns.length; c++) {
+    const r = columns[c].indexOf(item);
+    if (r >= 0) {
+      setActive(c, r);
+      return;
+    }
+  }
+}
+
+function setActive(col: number, row: number) {
+  const columns = getColumns();
+  if (columns.length === 0) return;
+  const safeCol = Math.max(0, Math.min(col, columns.length - 1));
+  const safeRow = Math.max(0, Math.min(row, columns[safeCol].length - 1));
+  const next = columns[safeCol][safeRow];
+
+  if (activeButton) activeButton.classList.remove("is-active");
+  activeButton = next;
+  activePos = { col: safeCol, row: safeRow };
+  activeButton.classList.add("is-active");
+  activeButton.scrollIntoView({ block: "nearest", inline: "nearest" });
+}
+
+function moveActive(deltaCol: number, deltaRow: number) {
+  const columns = getColumns();
+  if (columns.length === 0) return;
+  if (!activePos) return setActive(0, 0);
+
+  const targetCol = Math.max(0, Math.min(activePos.col + deltaCol, columns.length - 1));
+  const targetRow = Math.max(0, Math.min(activePos.row + deltaRow, columns[targetCol].length - 1));
+  setActive(targetCol, targetRow);
+}
+
+function setupKeyboardNavigation() {
+  document.addEventListener("keydown", (event) => {
+    const target = event.target as HTMLElement | null;
+    const inInput = !!target && (target.closest("input, textarea") || target.isContentEditable);
+
+    if (inInput) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        q.blur();
+        if (!activePos) setActive(0, 0);
+      }
+      return;
+    }
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      moveActive(0, -1);
+    } else if (event.key === "ArrowDown") {
+      event.preventDefault();
+      moveActive(0, 1);
+    } else if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      moveActive(-1, 0);
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      moveActive(1, 0);
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      activeButton?.click();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      focusSearch();
+    }
+  });
 }
 
 async function closeCurrentTab() {
@@ -232,6 +342,7 @@ loadTabs()
   .catch(console.error);
 setupReactiveListeners();
 setupFocusShortcuts();
+setupKeyboardNavigation();
 
 window.addEventListener("focus", focusSearch);
 document.addEventListener("visibilitychange", () => {
