@@ -67,15 +67,31 @@ header {
 
 .group-title {
   grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 12px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   padding: 6px 8px;
-  /* border-left: 4px solid #c7c7c7; */
-  background: #fafafa;
-  color: #444;
+  background: #f2f2f2;
+  color: #333;
   border-radius: var(--radius);
+}
+
+.group-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: 0 0 10px;
+}
+
+.group-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 
@@ -132,6 +148,8 @@ header {
   width: 16px;
   height: 16px;
   flex: 0 0 16px;
+  filter: grayscale(100%);
+  opacity: 0.6;
 }
 
 .close-tab {
@@ -148,6 +166,12 @@ header {
 
 .item:hover .close-tab,
 .item:focus-within .close-tab {
+  opacity: 1;
+}
+
+.item:hover .favicon,
+.item.is-active .favicon {
+  filter: none;
   opacity: 1;
 }
 

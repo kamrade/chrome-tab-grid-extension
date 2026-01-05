@@ -4,13 +4,15 @@ import {
   createBookmarksState,
   loadBookmarks,
   setupBookmarkListeners
-} from "./bookmarks";
+} from "./modules/bookmarks";
 import {
   createNavigationState,
   setActiveFromElement,
   setupKeyboardNavigation,
   syncActiveAfterRender
-} from "./navigation";
+} from "./modules/navigation";
+import { createTabItem } from "./modules/tabItems";
+import { renderGroupsSection } from "./modules/layout";
 type Tab = chrome.tabs.Tab;
 
 const grid = document.querySelector<HTMLDivElement>("#grid")!;
@@ -37,134 +39,27 @@ function render(tabs: Tab[]) {
     }
   }
 
-  const groupsSection = document.createElement("section");
-  groupsSection.className = "groups";
-
   const bookmarksColumn = createBookmarksColumn(bookmarksState, formatUrl, () => render(allTabs));
-  if (bookmarksColumn) groupsSection.appendChild(bookmarksColumn);
+  const groupsSection = renderGroupsSection({
+    groups: allGroups,
+    groupedTabs,
+    ungroupedTabs,
+    bookmarksColumn,
+    maxPerColumn: 12,
+    getGroupColor,
+    createTabItem: (tab) => createTabItem(tab, formatUrl, activateTab)
+  });
 
-  for (const group of allGroups) {
-    const list = groupedTabs.get(group.id);
-    if (!list || list.length === 0) continue;
-
-    const header = document.createElement("div");
-    header.className = "group-title";
-    header.textContent = group.title?.trim() || "Group";
-    const groupColor = getGroupColor(group.color);
-    header.style.borderColor = groupColor;
-    header.style.backgroundColor = groupColor;
-    header.style.color = "#fff";
-
-    const chunks = chunkTabs(list, 12);
-    const groupBlock = document.createElement("div");
-    groupBlock.className = "group-block";
-    groupBlock.style.setProperty("--cols", String(chunks.length));
-    groupBlock.appendChild(header);
-
-    for (const chunk of chunks) {
-      const column = document.createElement("div");
-      column.className = "group-column";
-      for (const tab of chunk) {
-        column.appendChild(createTabItem(tab));
-      }
-      groupBlock.appendChild(column);
-    }
-
-    groupsSection.appendChild(groupBlock);
-  }
-
-  if (ungroupedTabs.length > 0) {
-    const header = document.createElement("div");
-    header.className = "group-title";
-    header.textContent = "Без группы";
-
-    const chunks = chunkTabs(ungroupedTabs, 12);
-    const groupBlock = document.createElement("div");
-    groupBlock.className = "group-block ungrouped-block";
-    groupBlock.style.setProperty("--cols", String(chunks.length));
-    groupBlock.appendChild(header);
-
-    for (const chunk of chunks) {
-      const column = document.createElement("div");
-      column.className = "group-column";
-      for (const tab of chunk) {
-        column.appendChild(createTabItem(tab));
-      }
-      groupBlock.appendChild(column);
-    }
-
-    groupsSection.appendChild(groupBlock);
-  }
-
-  if (groupsSection.childElementCount > 0) {
-    grid.appendChild(groupsSection);
-  }
+  if (groupsSection.childElementCount > 0) grid.appendChild(groupsSection);
 
   syncActiveAfterRender(navigationState, grid);
 }
 
-function createTabItem(tab: Tab) {
-  const item = document.createElement("button");
-  item.className = "item";
-  item.type = "button";
-  item.title = tab.url ?? "";
-
-  const title = tab.title?.trim() || "(untitled)";
-  const url = tab.url || "";
-  const displayUrl = formatUrl(url);
-  const faviconUrl = tab.favIconUrl || (url ? `chrome://favicon/size/16@2x/${url}` : "");
-
-  const titleRow = document.createElement("div");
-  titleRow.className = "title-row";
-
-  const favicon = document.createElement("img");
-  favicon.className = "favicon";
-  favicon.alt = "";
-  if (faviconUrl) {
-    favicon.src = faviconUrl;
-  } else {
-    favicon.classList.add("is-empty");
-  }
-
-  const titleEl = document.createElement("div");
-  titleEl.className = "title";
-  titleEl.textContent = title;
-
-  const closeBtn = document.createElement("button");
-  closeBtn.className = "close-tab";
-  closeBtn.type = "button";
-  closeBtn.title = "Close tab";
-  closeBtn.textContent = "×";
-  closeBtn.addEventListener("click", async (event) => {
-    event.stopPropagation();
-    if (tab.id != null) {
-      await chrome.tabs.remove(tab.id);
-    }
-  });
-
-  const urlEl = document.createElement("div");
-  urlEl.className = "url";
-  urlEl.textContent = displayUrl;
-
-  titleRow.append(favicon, titleEl, closeBtn);
-  item.append(titleRow, urlEl);
-
-  item.addEventListener("click", async () => {
-    setActiveFromElement(navigationState, grid, item);
-    if (tab.id != null) await chrome.tabs.update(tab.id, { active: true });
-    if (tab.windowId != null) await chrome.windows.update(tab.windowId, { focused: true });
-    await closeCurrentTab();
-  });
-
-  return item;
-}
-
-function chunkTabs<T>(items: T[], size: number) {
-  const chunks: T[][] = [];
-  for (let i = 0; i < items.length; i += size) {
-    chunks.push(items.slice(i, i + size));
-  }
-  return chunks;
+async function activateTab(item: HTMLButtonElement, tab: Tab) {
+  setActiveFromElement(navigationState, grid, item);
+  if (tab.id != null) await chrome.tabs.update(tab.id, { active: true });
+  if (tab.windowId != null) await chrome.windows.update(tab.windowId, { focused: true });
+  await closeCurrentTab();
 }
 
 async function closeCurrentTab() {
