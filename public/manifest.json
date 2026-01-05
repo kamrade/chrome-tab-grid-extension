@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "Tab Grid List",
+  "version": "0.0.1",
+  "description": "Shows all tabs in a multi-column list.",
+  "chrome_url_overrides": {
+    "newtab": "src/popup/popup.html"
+  },
+  "permissions": ["tabs", "tabGroups"]
+}
