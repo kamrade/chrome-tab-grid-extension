@@ -183,6 +183,37 @@ function setupReactiveListeners() {
   chrome.tabGroups.onMoved.addListener(scheduleRefresh);
 }
 
+function focusSearch() {
+  window.setTimeout(() => {
+    q.focus();
+    q.select();
+  }, 0);
+}
+
+function setupFocusShortcuts() {
+  document.addEventListener("keydown", (event) => {
+    const target = event.target as HTMLElement | null;
+    if (target && (target.closest("input, textarea") || target.isContentEditable)) return;
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+
+    if (event.key.length === 1) {
+      focusSearch();
+      if (q.value.length === 0) {
+        q.value = event.key;
+      } else {
+        q.value += event.key;
+      }
+      q.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+  });
+
+  document.addEventListener("click", (event) => {
+    const target = event.target as HTMLElement | null;
+    if (target && target.closest("input, textarea, button")) return;
+    focusSearch();
+  });
+}
+
 q.addEventListener("input", () => {
   const needle = q.value.trim().toLowerCase();
   if (!needle) return render(allTabs);
@@ -194,5 +225,15 @@ q.addEventListener("input", () => {
   render(filtered);
 });
 
-loadTabs().catch(console.error);
+loadTabs()
+  .then(() => {
+    focusSearch();
+  })
+  .catch(console.error);
 setupReactiveListeners();
+setupFocusShortcuts();
+
+window.addEventListener("focus", focusSearch);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) focusSearch();
+});
